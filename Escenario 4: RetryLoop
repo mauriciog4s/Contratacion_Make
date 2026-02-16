@@ -1,0 +1,49 @@
+{
+    "name": "Escenario 4: Recuperación (Retry Loop)",
+    "flow": [
+        {
+            "id": 1,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "parameters": {
+                "__IMTCONN__": 7381402
+            },
+            "mapper": {
+                "query": "SELECT transaction_id, tusdatos_job_id, retry_count FROM `Tusdatos_TransactionControl` WHERE process_status = 'INCOMPLETE' AND retry_count < 3 LIMIT 10",
+                "useLegacySql": false
+            }
+        },
+        {
+            "id": 2,
+            "module": "builtin:BasicIterator",
+            "version": 1,
+            "mapper": {
+                "array": "{{1.rows}}"
+            }
+        },
+        {
+            "id": 3,
+            "module": "http:MakeRequest",
+            "version": 4,
+            "mapper": {
+                "url": "https://dash-board.tusdatos.co/api/retry/{{2.tusdatos_job_id}}",
+                "method": "get",
+                "qs": [
+                    {
+                        "name": "typedoc",
+                        "value": "CC"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 4,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "mapper": {
+                "query": "UPDATE `Tusdatos_TransactionControl` SET process_status = 'PROCESSING', retry_count = retry_count + 1, updated_at = CURRENT_TIMESTAMP() WHERE transaction_id = '{{2.transaction_id}}'",
+                "useLegacySql": false
+            }
+        }
+    ]
+}
