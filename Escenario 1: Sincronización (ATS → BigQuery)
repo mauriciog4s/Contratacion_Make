@@ -1,0 +1,71 @@
+{
+    "name": "Escenario 1: Sincronización (ATS → BigQuery)",
+    "flow": [
+        {
+            "id": 1,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "parameters": {
+                "__IMTCONN__": 7381402
+            },
+            "mapper": {
+                "query": "SELECT cj.candidate_id, cj.joborder_id, c.national_id_number AS cedula, c.first_name, c.last_name, c.email1 FROM `g4s-data-management.Global_ATS.candidate_joborder` cj INNER JOIN `g4s-data-management.Global_ATS.candidate` c ON cj.candidate_id = c.candidate_id WHERE c.country_id=47 AND cj.status = '1018' LIMIT 50",
+                "useLegacySql": false
+            }
+        },
+        {
+            "id": 2,
+            "module": "builtin:BasicIterator",
+            "version": 1,
+            "parameters": {},
+            "mapper": {
+                "array": "{{1.rows}}"
+            }
+        },
+        {
+            "id": 3,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "parameters": {
+                "__IMTCONN__": 7381402
+            },
+            "mapper": {
+                "query": "SELECT transaction_id FROM `Tusdatos_TransactionControl` WHERE cedula = '{{2.f.v}}' AND created_at > TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)",
+                "useLegacySql": false
+            }
+        },
+        {
+            "id": 4,
+            "module": "util:SetVariable2",
+            "version": 1,
+            "filter": {
+                "name": "No existe registro reciente",
+                "conditions": [
+                    [
+                        {
+                            "a": "{{3.totalRows}}",
+                            "b": 0,
+                            "o": "numeric:equal"
+                        }
+                    ]
+                ]
+            },
+            "mapper": {
+                "name": "uuid",
+                "value": "{{uuid}}"
+            }
+        },
+        {
+            "id": 5,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "parameters": {
+                "__IMTCONN__": 7381402
+            },
+            "mapper": {
+                "query": "INSERT INTO `Tusdatos_TransactionControl` (transaction_id, candidate_id, joborder_id, cedula, process_status, created_at, retry_count) VALUES ('{{4.uuid}}', {{2.candidate_id}}, {{2.joborder_id}}, '{{2.cedula}}', 'PENDING', CURRENT_TIMESTAMP(), 0)",
+                "useLegacySql": false
+            }
+        }
+    ]
+}
