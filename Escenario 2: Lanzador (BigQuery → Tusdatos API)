@@ -1,0 +1,49 @@
+{
+    "name": "Escenario 2: Lanzador (BigQuery → Tusdatos API)",
+    "flow": [
+        {
+            "id": 1,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "parameters": {
+                "__IMTCONN__": 7381402
+            },
+            "mapper": {
+                "query": "SELECT transaction_id, cedula, candidate_id FROM `Tusdatos_TransactionControl` WHERE process_status = 'PENDING' LIMIT 20",
+                "useLegacySql": false
+            }
+        },
+        {
+            "id": 2,
+            "module": "builtin:BasicIterator",
+            "version": 1,
+            "mapper": {
+                "array": "{{1.rows}}"
+            }
+        },
+        {
+            "id": 3,
+            "module": "http:MakeRequest",
+            "version": 4,
+            "parameters": {
+                "authenticationType": "basicAuth"
+            },
+            "mapper": {
+                "url": "https://dash-board.tusdatos.co/api/launch",
+                "method": "post",
+                "headers": [],
+                "body": "{\n    \"doc\": \"{{2.cedula}}\",\n    \"typedoc\": \"CC\",\n    \"webhook_reference\": \"{{2.transaction_id}}\"\n}",
+                "contentType": "application/json"
+            }
+        },
+        {
+            "id": 4,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "mapper": {
+                "query": "UPDATE `Tusdatos_TransactionControl` SET process_status = 'PROCESSING', tusdatos_job_id = '{{3.data.jobid}}', updated_at = CURRENT_TIMESTAMP() WHERE transaction_id = '{{2.transaction_id}}'",
+                "useLegacySql": false
+            }
+        }
+    ]
+}
