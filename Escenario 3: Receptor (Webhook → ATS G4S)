@@ -1,0 +1,131 @@
+{
+    "name": "Escenario 3: Receptor V2 (Webhook + Clasificación + Error Handler)",
+    "flow": [
+        {
+            "id": 1,
+            "module": "gateway:CustomWebHook",
+            "version": 1,
+            "parameters": {
+                "hook": 1891273
+            }
+        },
+        {
+            "id": 2,
+            "module": "google-bigquery:writeQuery",
+            "version": 1,
+            "mapper": {
+                "query": "SELECT candidate_id, joborder_id FROM `Tusdatos_TransactionControl` WHERE transaction_id = '{{1.webhook_reference}}'",
+                "useLegacySql": false
+            }
+        },
+        {
+            "id": 3,
+            "module": "http:MakeRequest",
+            "version": 4,
+            "mapper": {
+                "url": "https://dash-board.tusdatos.co/api/report_json/{{1.reportId}}",
+                "method": "get"
+            }
+        },
+        {
+            "id": 4,
+            "module": "builtin:BasicRouter",
+            "version": 1,
+            "routes": [
+                {
+                    "filter": {
+                        "name": "Ruta A: APROBADO (0 Hallazgos)",
+                        "conditions": [
+                            [
+                                { "a": "{{3.data.hallazgos}}", "o": "notexist" }
+                            ],
+                            [
+                                { "a": "{{3.data.hallazgos}}", "b": "0", "o": "numeric:equal" }
+                            ]
+                        ]
+                    },
+                    "flow": [
+                        {
+                            "id": 5,
+                            "module": "http:MakeRequest",
+                            "comment": "Update G4S Status 913",
+                            "mapper": {
+                                "url": "https://atscareers.g4s.com/index.php?m=careers&a=candidatejostatusupdate",
+                                "method": "post",
+                                "body": {
+                                    "candidateId": "{{2.candidate_id}}",
+                                    "joborderId": "{{2.joborder_id}}",
+                                    "statusId": "913",
+                                    "activityNote": "Validación Exitosa. Reporte: {{1.reportId}}"
+                                }
+                            }
+                        },
+                        {
+                            "id": 6,
+                            "module": "google-bigquery:writeQuery",
+                            "mapper": {
+                                "query": "UPDATE `Tusdatos_TransactionControl` SET process_status = 'COMPLETED', risk_level = 'BAJO', hallazgos_count = 0, report_url = 'https://dashboard.tusdatos.co/reportes/{{1.reportId}}', updated_at = CURRENT_TIMESTAMP() WHERE transaction_id = '{{1.webhook_reference}}'"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "filter": {
+                        "name": "Ruta B: REVISION (Hallazgos > 0)",
+                        "conditions": [
+                            [
+                                { "a": "{{3.data.hallazgos}}", "b": 0, "o": "numeric:greater" },
+                                { "a": "{{3.data.error}}", "b": true, "o": "boolean:notequal" }
+                            ]
+                        ]
+                    },
+                    "flow": [
+                        {
+                            "id": 7,
+                            "module": "http:MakeRequest",
+                            "comment": "Update G4S Status 1018",
+                            "mapper": {
+                                "url": "https://atscareers.g4s.com/index.php?m=careers&a=candidatejostatusupdate",
+                                "method": "post",
+                                "body": {
+                                    "candidateId": "{{2.candidate_id}}",
+                                    "joborderId": "{{2.joborder_id}}",
+                                    "statusId": "1018",
+                                    "activityNote": "Hallazgos detectados. Revisar PDF."
+                                }
+                            }
+                        },
+                        {
+                            "id": 8,
+                            "module": "google-bigquery:writeQuery",
+                            "comment": "Calculo de Riesgo 4 Niveles",
+                            "mapper": {
+                                "query": "UPDATE `Tusdatos_TransactionControl` SET process_status = 'COMPLETED', risk_level = CASE WHEN {{3.data.hallazgos}} = 1 THEN 'INFO' WHEN {{3.data.hallazgos}} BETWEEN 2 AND 3 THEN 'MEDIO' ELSE 'ALTO' END, hallazgos_count = {{3.data.hallazgos}}, report_url = 'https://dashboard.tusdatos.co/reportes/{{1.reportId}}', updated_at = CURRENT_TIMESTAMP() WHERE transaction_id = '{{1.webhook_reference}}'"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "filter": {
+                        "name": "Ruta C: ERROR TECNICO / INCOMPLETO",
+                        "conditions": [
+                            [
+                                { "a": "{{3.data.error}}", "b": true, "o": "boolean:equal" }
+                            ]
+                        ]
+                    },
+                    "flow": [
+                        {
+                            "id": 9,
+                            "module": "google-bigquery:writeQuery",
+                            "comment": "Marca INCOMPLETE para Retry",
+                            "mapper": {
+                                "query": "UPDATE `Tusdatos_TransactionControl` SET process_status = 'INCOMPLETE', updated_at = CURRENT_TIMESTAMP() WHERE transaction_id = '{{1.webhook_reference}}'"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
